@@ -50,6 +50,8 @@ DEFAULT_KEYWORD = "大数据技术"     # 默认搜索关键词
 DEFAULT_PAGES = 3                  # 默认采集页数（每页约20-42条）
 DEFAULT_DELAY = 1.0               # 每次请求间隔（秒），降低被反爬概率
 DEFAULT_ENRICH = True             # 是否调用视频详情接口补全点赞/投币/转发
+DEFAULT_WORKERS = 6               # 详情补全并发线程数（越大越快，但越易触发反爬）
+ENRICH_DELAY = 0.3                # 并发补全时每个线程的礼貌间隔（秒），比 DEFAULT_DELAY 小
 
 # ---- 存储系统配置（模块三：任选2个以上，本项目用 MongoDB + Redis）----
 # 是否启用各存储后端（关闭则跳过，不影响系统运行）

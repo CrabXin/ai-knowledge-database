@@ -9,8 +9,10 @@
 
 注意：B 站搜索接口需要 WBI 签名（w_rid），本模块完整实现该签名算法。
 """
+import concurrent.futures
 import functools
 import hashlib
+import threading
 import time
 import urllib.parse
 from datetime import datetime
@@ -129,7 +131,7 @@ def _enrich_stats(session: requests.Session, bvid: str, delay: float) -> dict:
 
 
 def crawl(keyword: str = None, pages: int = None, delay: float = None,
-          enrich: bool = None, crawl_date: str = None) -> dict:
+          enrich: bool = None, crawl_date: str = None, workers: int = None) -> dict:
     """执行一次采集并写入 CSV。
 
     Args:
@@ -138,6 +140,7 @@ def crawl(keyword: str = None, pages: int = None, delay: float = None,
         delay:   每次请求间隔秒数，防止触发反爬。
         enrich:  是否调用详情接口补全点赞/投币/转发。
         crawl_date: 采集日期标记，默认今天。
+        workers: 详情补全的并发线程数，默认 config.DEFAULT_WORKERS。
 
     Returns:
         {"success": bool, "fetched": int, "total": int, "message": str, "crawl_date": str}
@@ -146,6 +149,7 @@ def crawl(keyword: str = None, pages: int = None, delay: float = None,
     pages = pages or config.DEFAULT_PAGES
     delay = config.DEFAULT_DELAY if delay is None else delay
     enrich = config.DEFAULT_ENRICH if enrich is None else enrich
+    workers = workers or config.DEFAULT_WORKERS
     crawl_date = crawl_date or datetime.now().strftime("%Y-%m-%d")
 
     storage.write_status({
@@ -216,9 +220,6 @@ def crawl(keyword: str = None, pages: int = None, delay: float = None,
                 "keyword": keyword,
                 "crawl_date": crawl_date,
             }
-            if enrich:
-                stats = _enrich_stats(session, bvid, delay)
-                row.update(stats)
             rows.append(row)
 
         storage.write_status({
@@ -227,6 +228,33 @@ def crawl(keyword: str = None, pages: int = None, delay: float = None,
             "fetched": len(rows), "total": 0, "keyword": keyword,
         })
         time.sleep(delay)
+
+    # 详情补全：瓶颈在这里（每条视频一个请求），用线程池并发显著加速。
+    # 并发会提高被反爬概率，故限制线程数（workers）并保留小幅礼貌间隔（ENRICH_DELAY）。
+    # 说明：requests.Session 在多线程下共享做 GET 是常见且可用的（底层连接池线程安全）。
+    if enrich and rows:
+        enrich_delay = min(delay, config.ENRICH_DELAY)
+        total_rows = len(rows)
+        done = 0
+        lock = threading.Lock()
+
+        def _fill(row):
+            stats = _enrich_stats(session, row["bvid"], enrich_delay)
+            if stats:
+                row.update(stats)
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
+            futures = [pool.submit(_fill, r) for r in rows]
+            for _ in concurrent.futures.as_completed(futures):
+                with lock:
+                    done += 1
+                    cur = done
+                if cur % 10 == 0 or cur == total_rows:
+                    storage.write_status({
+                        "running": True,
+                        "message": f"正在补全详情 {cur}/{total_rows} 条（{workers} 线程并发）...",
+                        "fetched": total_rows, "total": 0, "keyword": keyword,
+                    })
 
     if not rows:
         msg = "未采集到数据（可能触发风控或关键词无结果），请稍后重试或调整关键词"
