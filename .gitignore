@@ -1,0 +1,31 @@
+# ---- 依赖 / 构建产物 ----
+node_modules/
+frontend/dist/
+
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# ---- 便携版 Redis（自带二进制，不入库；克隆者自备 Redis）----
+tools/redis/
+
+# ---- 调试符号 ----
+*.pdb
+
+# ---- 运行时数据 / 日志（生成物，不入库）----
+backend/data/users.csv
+backend/data/videos.csv
+backend/data/crawl_status.json
+*.log
+dump.rdb
+*.rdb
+
+# ---- 编辑器 / 系统 ----
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

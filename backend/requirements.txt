@@ -1,0 +1,14 @@
+fastapi>=0.110
+uvicorn[standard]>=0.27
+apscheduler>=3.10
+python-multipart>=0.0.9
+PyJWT>=2.8
+requests>=2.31
+pandas>=1.5
+numpy>=1.24
+scikit-learn>=1.2
+langchain>=0.1
+pymongo>=4.6
+redis>=5.0
+pymysql>=1.1
+pyspark>=3.5
