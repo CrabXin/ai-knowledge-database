@@ -9,6 +9,7 @@
 启动时初始化默认用户并开启每日定时采集。
 """
 import os
+import threading
 
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -38,6 +39,18 @@ app.add_middleware(
 def _startup():
     auth.init_default_users()
     scheduler.start_scheduler()
+    # 启动时后台对齐 CSV→MongoDB/Redis，自动修复服务/Redis 重启丢数或采集漏写导致的不同步。
+    # 放后台守护线程执行，不阻塞 Web 服务启动。
+    threading.Thread(target=_sync_storage_on_startup, daemon=True).start()
+
+
+def _sync_storage_on_startup():
+    """启动时以 CSV 主存储为准回填 Mongo/Redis，并打印结果。失败不影响服务运行。"""
+    try:
+        res = db_store.sync_from_csv()
+        print(f"[startup] 存储同步完成：{res}", flush=True)
+    except Exception as e:  # noqa: BLE001
+        print(f"[startup] 存储同步跳过（失败）：{e}", flush=True)
 
 
 # ---------------- 请求体模型 ----------------
@@ -132,6 +145,12 @@ def dates(user: dict = Depends(auth.get_current_user)):
 def storage_status(user: dict = Depends(auth.get_current_user)):
     """返回各存储系统（MongoDB / Redis）的连接状态与数据量。"""
     return db_store.storage_status()
+
+
+@app.post("/api/storage/sync")
+def storage_sync(user: dict = Depends(auth.require_admin)):
+    """以 CSV 主存储为准，将全部数据回填到 MongoDB / Redis，修复三方计数不同步（仅管理员）。"""
+    return db_store.sync_from_csv()
 
 
 @app.get("/api/data")

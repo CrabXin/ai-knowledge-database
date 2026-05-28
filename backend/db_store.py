@@ -103,6 +103,51 @@ def save_all(df, crawl_date):
     return result
 
 
+def sync_from_csv():
+    """以 CSV 主存储为准，将全部历史数据回填/重写到 MongoDB 与 Redis，使三方计数一致。
+
+    适用于修复以下不同步场景：
+    - 某次采集时 Mongo/Redis 临时不可用，save_all 静默跳过造成的漏写；
+    - Redis 未开持久化、重启后内存数据全部丢失。
+
+    写入复用按日期 upsert/覆盖的既有函数，幂等，可安全重复执行。
+    返回 CSV 总数与各后端同步后的数据量，便于核对是否一致。
+    """
+    import storage  # 懒加载，避免模块级循环依赖
+
+    df = storage.load_videos()  # 读取全部日期数据（CSV 为主存储、唯一真值源）
+    result = {"csv_total": len(df)}
+    if df.empty:
+        return result
+
+    # 按采集日期分组，逐日复用既有的按日期写入函数
+    groups = [(date, g.reset_index(drop=True)) for date, g in df.groupby("crawl_date")]
+
+    if config.ENABLE_MONGO:
+        try:
+            for date, g in groups:
+                save_to_mongo(g, date)
+            client = _mongo_client()
+            total = client[config.MONGO_DB][config.MONGO_COLLECTION].count_documents({})
+            client.close()
+            result["mongodb"] = {"ok": True, "total": total}
+        except Exception as e:  # noqa: BLE001
+            result["mongodb"] = {"ok": False, "error": str(e)[:120]}
+
+    if config.ENABLE_REDIS:
+        try:
+            for date, g in groups:
+                save_to_redis(g, date)
+            r = _redis_client()
+            total = len(r.keys("video:*"))
+            r.close()
+            result["redis"] = {"ok": True, "total": total}
+        except Exception as e:  # noqa: BLE001
+            result["redis"] = {"ok": False, "error": str(e)[:120]}
+
+    return result
+
+
 def storage_status():
     """读取各存储后端当前状态与数据量，供前端展示，证明已真实连接。"""
     status = {}
