@@ -85,6 +85,9 @@ def _fetch_wbi_keys(session: requests.Session) -> tuple:
 def _new_session() -> requests.Session:
     """创建带匿名 Cookie 的会话。"""
     session = requests.Session()
+    # 绕过系统代理（如本机 7890）：B 站为国内站，走代理会被海外节点 reset（WinError 10054），
+    # 导致"获取 WBI 签名失败"。trust_env=False 让本会话忽略 HTTP(S)_PROXY 等环境变量，直连 B 站。
+    session.trust_env = False
     # 访问主页以获取 buvid 等匿名 Cookie
     try:
         session.get("https://www.bilibili.com", headers=_HEADERS, timeout=10)
