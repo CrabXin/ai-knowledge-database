@@ -70,6 +70,11 @@ class CrawlReq(BaseModel):
 class AskReq(BaseModel):
     question: str
     crawl_date: str = None
+    session_id: str = None  # 前端生成的会话标识，带上则启用多轮上下文记忆
+
+
+class ResetReq(BaseModel):
+    session_id: str
 
 
 class CreateUserReq(BaseModel):
@@ -207,7 +212,14 @@ def ai_status(user: dict = Depends(auth.get_current_user)):
 def ai_ask(req: AskReq, user: dict = Depends(auth.get_current_user)):
     if not req.question.strip():
         raise HTTPException(status_code=400, detail="问题不能为空")
-    return ai_qa.answer(req.question, req.crawl_date)
+    return ai_qa.answer(req.question, req.crawl_date, req.session_id)
+
+
+@app.post("/api/ai/reset")
+def ai_reset(req: ResetReq, user: dict = Depends(auth.get_current_user)):
+    """清空指定会话的多轮上下文（用户点"清空对话"时调用）。"""
+    ai_qa.reset_history(req.session_id)
+    return {"ok": True}
 
 
 # ---------------- 生产环境静态托管（前端打包后）----------------
